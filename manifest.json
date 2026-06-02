@@ -1,0 +1,21 @@
+{
+  "id": "emberplus",
+  "label": "Ember+",
+  "nav_tab": "protocoles",
+  "tab_group": "protocoles",
+  "tab_order": 1,
+  "tab_template": "emberplus/settings_tab.html",
+  "settings_keys": {
+    "emberplus_enabled": {
+      "type": "bool",
+      "default": false
+    },
+    "emberplus_port": {
+      "type": "int",
+      "default": 9000
+    }
+  },
+  "version": "0.1.0",
+  "order": 0,
+  "description": "Provider Ember+ — expose l'état des containers et le routage SHM en lecture/écriture via le protocole Ember+ S101 (TCP). Compatible VSM et autres contrôleurs broadcast."
+}

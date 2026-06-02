@@ -1,0 +1,36 @@
+<div id="protocoles-tab-emberplus" class="set-tab-content" style="display:none">
+    <h2>Provider Ember+</h2>
+    <div class="form">
+        <div class="row">
+            <div class="field" style="align-self:center"><label style="display:flex; align-items:center; gap:var(--space-2)">
+                <input type="checkbox" class="ios-toggle" id="s_ember_enabled">
+                Activer le provider Ember+
+            </label></div>
+            <div class="field"><label>Port TCP</label>
+                <input type="number" id="s_ember_port" min="1" max="65535" value="9000"></div>
+            <button class="btn btn-green" onclick="appliquerEmber()">Appliquer</button>
+        </div>
+        <div class="meta" style="margin-top:var(--space-2)">
+            L'arbre Ember+ expose tous les paramètres des containers en lecture.
+            Pour les multiviews, chaque fenêtre apparaît dans <code>containers.&lt;vmid&gt;.flux.&lt;idx&gt;</code> avec
+            position et taille en lecture/écriture (un Set déclenche un redéploiement).
+        </div>
+    </div>
+
+    <h2>État de connexion</h2>
+    <div class="form">
+        <div class="row">
+            <div class="field"><label>Statut</label>
+                <div id="ember_status_badge" class="meta">—</div></div>
+            <div class="field"><label>Port effectif</label>
+                <div id="ember_status_port" class="meta">—</div></div>
+            <div class="field"><label>Clients connectés</label>
+                <div id="ember_status_clients" class="meta">—</div></div>
+            <div class="field"><label>Clients abonnés</label>
+                <div id="ember_status_subscribed" class="meta">—</div></div>
+            <div class="field"><label>Démarré depuis</label>
+                <div id="ember_status_uptime" class="meta">—</div></div>
+        </div>
+        <div id="ember_status_error" class="meta" style="margin-top:var(--space-2); color: var(--status-stopped-fg)"></div>
+    </div>
+</div>
