@@ -526,6 +526,10 @@ FLUX_SUBTREE_ID = 100
 # Énumération inscriptible : écrire l'index N rappelle le N-ième preset. Path dédié
 # pour ne pas collisionner avec les params container (1..9) ni le nœud flux (100).
 RECALL_PARAM_ID = 101
+# Sous-arbre « Overlays texte » du multiview : 1.<vmid>.102.<overlay_idx> = texte (string, RW).
+# Un seul champ éditable par overlay (le contenu texte). Path dédié pour ne pas collisionner
+# avec les params container (1..9), le nœud flux (100) ni le recall (101).
+OVERLAY_SUBTREE_ID = 102
 
 
 def _gather_routing_sources():
@@ -646,6 +650,13 @@ def _flux_list(deploy_config_json):
     except Exception:
         return []
 
+def _overlay_list(deploy_config_json):
+    try:
+        dc = json.loads(deploy_config_json) if isinstance(deploy_config_json, str) else deploy_config_json
+        return ((dc or {}).get("params") or {}).get("overlays") or []
+    except Exception:
+        return []
+
 def _enumerate_elements():
     """Itère sur tous les éléments de l'arbre sous forme (path, kind, *args).
     kind ∈ {'node', 'param'} ; args = (identifier, description[, raw_value, ptype, writeable])."""
@@ -674,6 +685,19 @@ def _enumerate_elements():
                 for sub_id, (field, ptype, desc, writeable) in PATH_FIELD_FLUX.items():
                     yield ([1, vmid, FLUX_SUBTREE_ID, i, sub_id], 'param',
                            field, desc, f.get(field), ptype, writeable)
+        # Overlays texte (text_source local) : un param string inscriptible par overlay.
+        # Index = position RÉELLE dans params.overlays (pas l'index parmi les seuls texte),
+        # pour que apply_setvalue retrouve le bon overlay sans ré-indexation.
+        overlays = _overlay_list(c.get("deploy_config"))
+        editable = [(i, ov) for i, ov in enumerate(overlays)
+                    if ov.get("kind") == "text" and (ov.get("text_source") or "local") == "local"]
+        if editable:
+            yield ([1, vmid, OVERLAY_SUBTREE_ID], 'node', 'overlays', 'Overlays texte')
+            for i, ov in editable:
+                txt = ov.get("text") or ""
+                desc = txt.replace("\n", " ")[:32] or f"Overlay #{i}"
+                yield ([1, vmid, OVERLAY_SUBTREE_ID, i], 'param',
+                       f"texte_{i}", desc, txt, PT_STRING, True)
 
 def _recall_names(vmid, ctype):
     """Liste des noms de presets rappelables pour ce container, ou None si le type
@@ -1138,6 +1162,43 @@ def apply_setvalue(path, value):
         else:
             log.warning(f"emberplus: recall {vmid} ({ctype}) index {value} : {detail}")
         return ok
+
+    # Texte d'overlay multiview à chaud : [1, vmid, 102, overlay_idx]
+    if len(path) == 4 and path[0] == 1 and path[2] == OVERLAY_SUBTREE_ID:
+        vmid, overlay_idx = path[1], path[3]
+        from app.database import db_get_container, db_update_deploy_config
+        c = db_get_container(vmid)
+        if not c:
+            return False
+        try:
+            dc = json.loads(c["deploy_config"]) if c.get("deploy_config") else None
+        except Exception:
+            return False
+        if not dc or dc.get("type") != "multiview":
+            return False
+        params = dc.get("params") or {}
+        overlays = params.get("overlays") or []
+        if not (0 <= overlay_idx < len(overlays)):
+            return False
+        if overlays[overlay_idx].get("kind") != "text":
+            return False
+        overlays[overlay_idx]["text"] = str(value)
+        # 1) persister (durabilité au prochain redeploy) SANS relancer le script
+        db_update_deploy_config(vmid, dc["type"], params)
+        # 2) pousser à chaud via :8082/overlays — remplacement ATOMIQUE de toute la liste
+        # (contrat du plugin, pas de patch partiel). POST direct (cf. note _mixer_proxy plus bas).
+        try:
+            from app.proxmox import get_container_ip
+            import requests as _req
+            ip = get_container_ip(vmid)
+            if ip:
+                _req.post(f"http://{ip}:8082/overlays",
+                          json={"overlays": overlays}, timeout=2)
+        except Exception as e:
+            log.warning(f"emberplus: push /overlays {vmid} échec : {e}")
+        # 3) ack immédiat aux subscribers
+        notify_change()
+        return True
 
     # Géométrie multiview à chaud : [1, vmid, 100, flux_idx, field_id]
     if len(path) != 5 or path[0] != 1 or path[2] != FLUX_SUBTREE_ID:

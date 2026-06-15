@@ -1,8 +1,9 @@
 {
-  "version": "0.1.0",
-  "published_at": "2026-06-01",
+  "version": "0.2.0",
+  "published_at": "2026-06-15",
   "changes": {
     "Nouveautés": [
+      "Édition à chaud du texte des overlays multiview (sous-arbre « Overlays texte », paramètres string inscriptibles)",
       "Version initiale"
     ],
     "Corrections": [],
