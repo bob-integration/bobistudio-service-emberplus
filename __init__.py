@@ -1188,7 +1188,7 @@ def apply_setvalue(path, value):
         # 2) pousser à chaud via :8082/overlays — remplacement ATOMIQUE de toute la liste
         # (contrat du plugin, pas de patch partiel). POST direct (cf. note _mixer_proxy plus bas).
         try:
-            from app.proxmox import get_container_ip
+            from app.addressing import get_container_ip
             import requests as _req
             ip = get_container_ip(vmid)
             if ip:
@@ -1233,7 +1233,7 @@ def apply_setvalue(path, value):
     # 2) pousser la géométrie à chaud via :8082/window (pas de redeploy → pas de glitch).
     # POST direct (pas _mixer_proxy : il renvoie du Flask/jsonify, hors contexte d'app ici).
     try:
-        from app.proxmox import get_container_ip
+        from app.addressing import get_container_ip
         import requests as _req
         ip = get_container_ip(vmid)
         if ip:
