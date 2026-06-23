@@ -1,7 +1,11 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "published_at": "2026-06-23",
   "changes": {
+    "Corrections (0.3.1)": [
+      "SetValue accepté → report CIBLÉ immédiat du paramètre modifié à l'émetteur (hors débounce). Les consommateurs / arbres de gadgets qui ne rafraîchissent qu'au reçu de ce report voient enfin la nouvelle valeur (départ chrono/décompte, texte d'overlay, états marche/raz) — le seul broadcast full-tree débouncé ne suffisait pas",
+      "Raz d'un chrono/décompte via Ember+ persiste désormais marche=false (l'état affiché dans l'arbre reflète l'arrêt)"
+    ],
     "Nouveautés": [
       "Sous-arbre « Chronos / décomptes » du multiview (1.<vmid>.103.<idx>) : réglage du départ (string RW) + déclenchements marche (bool RW start/stop) et raz (bool RW reset), câblés à chaud sur :8082/chrono et :8082/overlays",
       "Édition à chaud du texte des overlays multiview (sous-arbre « Overlays texte », paramètres string inscriptibles)",

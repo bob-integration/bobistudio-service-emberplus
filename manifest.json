@@ -15,7 +15,7 @@
       "default": 9000
     }
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "order": 0,
   "description": "Provider Ember+ — expose l'état des containers et le routage SHM en lecture/écriture via le protocole Ember+ S101 (TCP). Compatible VSM et autres contrôleurs broadcast."
 }

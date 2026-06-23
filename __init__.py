@@ -1296,6 +1296,8 @@ def apply_setvalue(path, value):
             db_update_deploy_config(vmid, dc["type"], params)
         elif field_id == 3:
             action = "reset"
+            ov["chrono_running"] = False         # raz = arrêt : refléter dans l'arbre (marche → false)
+            db_update_deploy_config(vmid, dc["type"], params)
         else:
             return False
         ok = _push_chrono(vmid, cid, action)
@@ -1458,6 +1460,22 @@ def _send_frame(sock, body):
         log.debug(f"emberplus: send échoué : {e}")
         return False
 
+def _echo_param(sock, path):
+    """Renvoie IMMÉDIATEMENT (hors débounce) l'élément à `path` avec sa valeur courante,
+    en réponse directe à un SetValue accepté. Beaucoup de consommateurs (arbre de gadgets)
+    ne rafraîchissent leur affichage qu'au reçu de ce report ciblé du paramètre modifié ;
+    le broadcast full-tree débouncé ne suffit pas. Best-effort, ne lève jamais."""
+    try:
+        gens = (_enumerate_elements(), _enumerate_routing_elements())
+        for gen in gens:
+            for p, kind, *args in gen:
+                if p == path:
+                    _send_frame(sock, _wrap_single_element(_encode_element(p, kind, *args)))
+                    return True
+    except Exception as e:
+        log.debug(f"emberplus: echo param {path} échoué : {e}")
+    return False
+
 def _broadcast_full_tree():
     """Envoie le root collection à tous les clients abonnés (push après changement)."""
     try:
@@ -1560,7 +1578,10 @@ def _process_message(sock, addr, kind, payload):
             with _lock:
                 _subscribed.discard(sock)
         elif a["kind"] == "setvalue":
-            apply_setvalue(a["path"], a["value"])
+            if apply_setvalue(a["path"], a["value"]):
+                # Report ciblé du paramètre modifié à l'émetteur (l'arbre de gadgets en a besoin
+                # pour rafraîchir sa valeur affichée — départ, texte, états marche/raz).
+                _echo_param(sock, a["path"])
         elif a["kind"] == "connect":
             apply_connect(a["matrix_path"], a["target"], a["sources"], a["operation"])
 
