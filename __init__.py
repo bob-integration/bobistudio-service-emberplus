@@ -530,6 +530,12 @@ RECALL_PARAM_ID = 101
 # Un seul champ éditable par overlay (le contenu texte). Path dédié pour ne pas collisionner
 # avec les params container (1..9), le nœud flux (100) ni le recall (101).
 OVERLAY_SUBTREE_ID = 102
+# Sous-arbre « Chronos / décomptes » du multiview : 1.<vmid>.103.<overlay_idx>.<field>.
+# Expose RÉGLAGES + DÉCLENCHEMENTS des horloges chrono/décompte. Path dédié (≠ 1..9 / 100 / 101 / 102).
+#   field 1 depart  (string  RW) — point de départ HH:MM:SS (réglage, persisté + push /overlays)
+#   field 2 marche  (bool    RW) — déclenche start(True)/stop(False) live via :8082/chrono
+#   field 3 raz     (bool    RW) — déclenche reset live (momentané, toujours lu False)
+CHRONO_SUBTREE_ID = 103
 
 
 def _gather_routing_sources():
@@ -657,6 +663,16 @@ def _overlay_list(deploy_config_json):
     except Exception:
         return []
 
+def _chrono_overlays(deploy_config_json):
+    """[(idx, overlay)] des overlays horloge pilotables (chrono / décompte) d'un multiview.
+    L'index est la position RÉELLE dans params.overlays (apply_setvalue le réutilise)."""
+    out = []
+    for i, ov in enumerate(_overlay_list(deploy_config_json)):
+        if ov.get("kind") == "clock" and ov.get("clock_source") in ("chrono", "countdown"):
+            out.append((i, ov))
+    return out
+
+
 def _enumerate_elements():
     """Itère sur tous les éléments de l'arbre sous forme (path, kind, *args).
     kind ∈ {'node', 'param'} ; args = (identifier, description[, raw_value, ptype, writeable])."""
@@ -698,6 +714,23 @@ def _enumerate_elements():
                 desc = txt.replace("\n", " ")[:32] or f"Overlay #{i}"
                 yield ([1, vmid, OVERLAY_SUBTREE_ID, i], 'param',
                        f"texte_{i}", desc, txt, PT_STRING, True)
+        # Chronos / décomptes : réglages (départ) + déclenchements (marche/raz) inscriptibles.
+        chronos = _chrono_overlays(c.get("deploy_config"))
+        if chronos:
+            yield ([1, vmid, CHRONO_SUBTREE_ID], 'node', 'chronos', 'Chronos / décomptes')
+            for i, ov in chronos:
+                is_cd = ov.get("clock_source") == "countdown"
+                kind_lbl = "Décompte" if is_cd else "Chrono"
+                nm = ov.get("name") or f"{kind_lbl} #{i}"
+                yield ([1, vmid, CHRONO_SUBTREE_ID, i], 'node', f"{kind_lbl.lower()}_{i}", nm)
+                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 1], 'param',
+                       'depart', 'Départ (HH:MM:SS)', ov.get("chrono_start") or "00:00:00",
+                       PT_STRING, True)
+                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 2], 'param',
+                       'marche', 'Marche (départ/arrêt)', bool(ov.get("chrono_running")),
+                       PT_BOOLEAN, True)
+                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 3], 'param',
+                       'raz', 'Réinitialiser', False, PT_BOOLEAN, True)
 
 def _recall_names(vmid, ctype):
     """Liste des noms de presets rappelables pour ce container, ou None si le type
@@ -1132,6 +1165,33 @@ def _scan_for_command(klass, num, content, path, actions):
 # Application d'un SetValue venant d'Ember+ : on n'autorise QUE x/y/w/h flux
 # ═════════════════════════════════════════════════════════════════════
 
+def _push_overlays(vmid, overlays):
+    """Pousse à chaud la liste d'overlays au script multiview (:8082/overlays, remplacement atomique)."""
+    try:
+        from app.addressing import get_container_ip
+        import requests as _req
+        ip = get_container_ip(vmid)
+        if ip:
+            _req.post(f"http://{ip}:8082/overlays", json={"overlays": overlays}, timeout=2)
+    except Exception as e:
+        log.warning(f"emberplus: push /overlays {vmid} échec : {e}")
+
+
+def _push_chrono(vmid, cid, action):
+    """Déclenche un chrono/décompte à chaud (:8082/chrono, {id, action}). True si 200."""
+    try:
+        from app.addressing import get_container_ip
+        import requests as _req
+        ip = get_container_ip(vmid)
+        if not ip:
+            return False
+        r = _req.post(f"http://{ip}:8082/chrono", json={"id": cid, "action": action}, timeout=2)
+        return r.status_code == 200
+    except Exception as e:
+        log.warning(f"emberplus: push /chrono {vmid} échec : {e}")
+        return False
+
+
 def apply_setvalue(path, value):
     """Applique une écriture Ember+ autorisée À CHAUD (sans redeploy) :
     routing, géométrie multiview x/y/w/h, et rappel de preset. Retourne True si appliqué."""
@@ -1199,6 +1259,48 @@ def apply_setvalue(path, value):
         # 3) ack immédiat aux subscribers
         notify_change()
         return True
+
+    # Chrono / décompte multiview : [1, vmid, 103, overlay_idx, field_id]
+    #   1 depart (réglage : persiste + push /overlays) ; 2 marche (start/stop) ; 3 raz (reset)
+    if len(path) == 5 and path[0] == 1 and path[2] == CHRONO_SUBTREE_ID:
+        vmid, overlay_idx, field_id = path[1], path[3], path[4]
+        from app.database import db_get_container, db_update_deploy_config
+        c = db_get_container(vmid)
+        if not c:
+            return False
+        try:
+            dc = json.loads(c["deploy_config"]) if c.get("deploy_config") else None
+        except Exception:
+            return False
+        if not dc or dc.get("type") != "multiview":
+            return False
+        params = dc.get("params") or {}
+        overlays = params.get("overlays") or []
+        if not (0 <= overlay_idx < len(overlays)):
+            return False
+        ov = overlays[overlay_idx]
+        if ov.get("kind") != "clock" or ov.get("clock_source") not in ("chrono", "countdown"):
+            return False
+        cid = ov.get("id")
+
+        if field_id == 1:   # départ (réglage) : persister + push atomique de la liste
+            ov["chrono_start"] = str(value)
+            db_update_deploy_config(vmid, dc["type"], params)
+            _push_overlays(vmid, overlays)
+            notify_change()
+            return True
+        # marche / raz = déclenchements LIVE via :8082/chrono (comme les boutons de l'éditeur)
+        if field_id == 2:
+            action = "start" if value else "stop"
+            ov["chrono_running"] = bool(value)   # refléter l'état lu dans l'arbre
+            db_update_deploy_config(vmid, dc["type"], params)
+        elif field_id == 3:
+            action = "reset"
+        else:
+            return False
+        ok = _push_chrono(vmid, cid, action)
+        notify_change()
+        return ok
 
     # Géométrie multiview à chaud : [1, vmid, 100, flux_idx, field_id]
     if len(path) != 5 or path[0] != 1 or path[2] != FLUX_SUBTREE_ID:
