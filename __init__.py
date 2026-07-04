@@ -1373,7 +1373,7 @@ def apply_connect(matrix_path, target_num, source_nums, operation):
             log.warning(f"emberplus: connect: source {source_nums[0]} introuvable")
             return False
         from_vmid, new_shm = source_info[3], source_info[2]
-        from app.routes import _apply_wire
+        from app.routes.cabling import _apply_wire
         ok, status, payload = _apply_wire(from_vmid, vmid, _shm_bare(new_shm), "video", to_slot=to_slot)
         if ok:
             notify_change()
@@ -1384,7 +1384,7 @@ def apply_connect(matrix_path, target_num, source_nums, operation):
 
     # ── Déconnexion : détacher à chaud, fallback redeploy ──
     from app.database import db_get_container, db_update_deploy_config
-    from app.routes import _try_unwire_hot
+    from app.routes.cabling import _try_unwire_hot
     c = db_get_container(vmid)
     if not c:
         return False
