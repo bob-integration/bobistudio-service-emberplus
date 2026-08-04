@@ -1,13 +1,19 @@
 {
-  "version": "0.3.1",
-  "published_at": "2026-06-23",
+  "version": "0.4.0",
+  "published_at": "2026-08-04",
   "changes": {
+    "Nouveautés (0.4.0)": [
+      "L'arbre n'est plus keyé sur le VMID mais sur les EMPLACEMENTS (Réglages → Ember+ → Emplacements) : une branche = une fonction de production, numéro jamais réattribué. Réaffecter un emplacement à un autre conteneur (multiview recréé, machine remplacée) ne déplace AUCUN chemin — rappeler un layout reste le même Set. Rupture assumée : l'ancien arbre containers.<vmid> disparaît",
+      "Un emplacement sans conteneur lié reste PUBLIÉ avec isOnline=false (+ paramètre en_ligne) : une branche qui disparaissait laissait le pupitre avec des boutons morts sans le savoir",
+      "Rappel de preset par NOM : nouveau paramètre recall_nom (1.<num>.104). Le rappel par rang (101) résout désormais lui aussi par nom, d'après l'énumération telle que publiée — insérer ou renommer un layout ne décale plus ce qu'un rang mémorisé rappelle",
+      "Paramètre vmid en lecture (1.<num>.10) : diagnostic « quel conteneur sert cet emplacement », jamais une adresse"
+    ],
     "Corrections (0.3.1)": [
       "SetValue accepté → report CIBLÉ immédiat du paramètre modifié à l'émetteur (hors débounce). Les consommateurs / arbres de gadgets qui ne rafraîchissent qu'au reçu de ce report voient enfin la nouvelle valeur (départ chrono/décompte, texte d'overlay, états marche/raz) — le seul broadcast full-tree débouncé ne suffisait pas",
       "Raz d'un chrono/décompte via Ember+ persiste désormais marche=false (l'état affiché dans l'arbre reflète l'arrêt)"
     ],
     "Nouveautés": [
-      "Sous-arbre « Chronos / décomptes » du multiview (1.<vmid>.103.<idx>) : réglage du départ (string RW) + déclenchements marche (bool RW start/stop) et raz (bool RW reset), câblés à chaud sur :8082/chrono et :8082/overlays",
+      "Sous-arbre « Chronos / décomptes » du multiview (1.<num>.103.<idx>) : réglage du départ (string RW) + déclenchements marche (bool RW start/stop) et raz (bool RW reset), câblés à chaud sur :8082/chrono et :8082/overlays",
       "Édition à chaud du texte des overlays multiview (sous-arbre « Overlays texte », paramètres string inscriptibles)",
       "Version initiale"
     ],

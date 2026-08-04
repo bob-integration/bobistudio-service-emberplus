@@ -5,9 +5,15 @@
 
 """Provider Ember+ minimal pour l'orchestrateur MXL.
 
-Expose en lecture l'état des containers (et, pour les multiviews, la position
-+ taille de chaque fenêtre). Permet l'écriture sur x/y/w/h des fenêtres
-multiview (le changement est persisté en base puis re-déployé).
+L'arbre est celui des EMPLACEMENTS (table `production_roles`), pas des containers : un emplacement est
+une fonction de production (« MULTIVIEW RÉGIE 1 ») dont le numéro n'est jamais réattribué,
+servie par le conteneur qui lui est lié à cet instant. Réaffecter un emplacement à un autre
+conteneur ne déplace aucun chemin Ember+ — c'est tout l'objet du modèle : le vmid est un
+handle jetable, et un pupitre ne peut pas se reconfigurer parce qu'on a recréé une machine.
+
+Expose en lecture l'état du conteneur servant (et, pour les multiviews, la position + taille
+de chaque fenêtre). Permet l'écriture sur x/y/w/h des fenêtres multiview, les textes/chronos
+d'overlay, et le rappel de preset (par nom ou par rang).
 
 Pure Python : pas de dépendance, juste S101 framing + BER + Glow DTD.
 
@@ -489,17 +495,26 @@ class S101Reader:
 # ═════════════════════════════════════════════════════════════════════
 
 # Indices dans le path Ember+ — choisis pour rester stables.
-# Top-level : 1 = "containers"
-# Sous container : 1.<vmid>.<field>
+#
+# Top-level : 1 = "emplacements"
+#
+# ⚠ L'arbre n'est PAS keyé sur le vmid (handle jetable : un recreate le change, un
+# remplacement de conteneur encore plus) mais sur le NUMÉRO D'EMPLACEMENT — la fonction de
+# production, persistée dans `production_roles` et jamais réattribuée. Réaffecter l'emplacement
+# à un autre conteneur (nouveau multiview, machine remplacée) ne bouge AUCUN chemin : la
+# config du pupitre en face continue de marcher, et rappeler un layout reste le même Set.
+# Un emplacement sans conteneur lié reste PUBLIÉ avec isOnline=false.
+#
+# Sous emplacement : 1.<num>.<field>
 #   1 hostname        2 status      3 ip          4 fps
 #   5 type            6 script_path 7 source      8 shm_out
-#   9 restarts
-# Pour multiview : 1.<vmid>.100.<flux_idx>.<field>
+#   9 restarts       10 vmid       11 en_ligne
+# Pour multiview : 1.<num>.100.<flux_idx>.<field>
 #   1 x  2 y  3 w  4 h  5 tsl_index  6 name  7 path  8 show_label  9 show_tally
 
 PATH_FIELD_CONTAINER = {
     1: ("hostname",   PT_STRING,  "Hostname"),
-    2: ("status",     PT_STRING,  "Statut Proxmox"),
+    2: ("status",     PT_STRING,  "Statut du conteneur"),
     3: ("ip",         PT_STRING,  "Adresse IP"),
     4: ("fps",        PT_REAL,    "FPS"),
     5: ("type",       PT_STRING,  "Type de script"),
@@ -507,6 +522,11 @@ PATH_FIELD_CONTAINER = {
     7: ("source",     PT_STRING,  "Source"),
     8: ("shm_out",    PT_STRING,  "SHM sortie"),
     9: ("restarts",   PT_INTEGER, "Redémarrages"),
+    # vmid en LECTURE : diagnostic (« quel conteneur sert cet emplacement ? »), jamais une
+    # adresse. 0 = emplacement hors ligne.
+    10: ("vmid",      PT_INTEGER, "VMID servant (diagnostic)"),
+    # Doublon explicite de isOnline : beaucoup de consommateurs ignorent le champ du protocole.
+    11: ("en_ligne",  PT_BOOLEAN, "Emplacement servi"),
 }
 
 PATH_FIELD_FLUX = {
@@ -523,8 +543,11 @@ PATH_FIELD_FLUX = {
 
 FLUX_SUBTREE_ID = 100
 # Paramètre « Recall » (rappel de preset) émis pour tout type déclarant control.recall.
-# Énumération inscriptible : écrire l'index N rappelle le N-ième preset. Path dédié
-# pour ne pas collisionner avec les params container (1..9) ni le nœud flux (100).
+# Énumération inscriptible : écrire l'index N rappelle le preset PUBLIÉ en position N.
+# ⚠ L'index n'est PAS l'identité du preset : renommer/insérer un layout réordonne la liste, et
+# un pupitre qui garde « 3 » rappellerait alors autre chose sans le savoir. On mémorise donc
+# l'énumération telle que PUBLIÉE (_recall_snapshot) et on résout par NOM à l'écriture ; pour
+# les systèmes qui préfèrent piloter par chaîne, `recall_nom` (104) prend le nom directement.
 RECALL_PARAM_ID = 101
 # Sous-arbre « Overlays texte » du multiview : 1.<vmid>.102.<overlay_idx> = texte (string, RW).
 # Un seul champ éditable par overlay (le contenu texte). Path dédié pour ne pas collisionner
@@ -536,6 +559,13 @@ OVERLAY_SUBTREE_ID = 102
 #   field 2 marche  (bool    RW) — déclenche start(True)/stop(False) live via :8082/chrono
 #   field 3 raz     (bool    RW) — déclenche reset live (momentané, toujours lu False)
 CHRONO_SUBTREE_ID = 103
+# Rappel PAR NOM : 1.<num>.104 (string, RW). Écrire « Layout demi-finale » rappelle ce
+# layout-là, quel que soit son rang dans la liste. Adressage recommandé pour les scripts.
+RECALL_NAME_PARAM_ID = 104
+
+# Énumération de recall telle que PUBLIÉE, par emplacement : {num: [noms]}. Remplie à chaque
+# construction d'arbre, lue à l'écriture pour traduire l'index reçu en NOM de preset.
+_recall_snapshot = {}
 
 
 def _gather_routing_sources():
@@ -598,7 +628,8 @@ def _encode_value_explicit(ptype, raw):
         return ber_bool(bool(raw))
     return ber_utf8(str(raw) if raw is not None else "")
 
-def _parameter_contents_set(identifier, description, raw_value, ptype, access, enumeration=None):
+def _parameter_contents_set(identifier, description, raw_value, ptype, access, enumeration=None,
+                            online=True):
     """ParameterContents = SET universel (tag 0x31) contenant chaque champ EXPLICIT-taggé.
     Convention Glow.asn (module EXPLICIT TAGS). `enumeration` = liste d'étiquettes ;
     si fournie, émet PC_ENUMERATION (entrées séparées par '\\n', l'index = la valeur entière)."""
@@ -611,30 +642,35 @@ def _parameter_contents_set(identifier, description, raw_value, ptype, access, e
     if enumeration:
         fields += _ctx_explicit(PC_ENUMERATION, ber_utf8("\n".join(enumeration)))
     fields += (
-        _ctx_explicit(PC_IS_ONLINE,   ber_bool(True)) +
+        _ctx_explicit(PC_IS_ONLINE,   ber_bool(bool(online))) +
         _ctx_explicit(PC_TYPE,        ber_int(ptype))
     )
     return _universal_constructed(17, fields)  # SET universel
 
-def _qual_parameter(path, identifier, description, raw_value, ptype, writeable, enumeration=None):
+def _qual_parameter(path, identifier, description, raw_value, ptype, writeable, enumeration=None,
+                    online=True):
     access = ACCESS_READWRITE if writeable else ACCESS_READ
-    contents_set = _parameter_contents_set(identifier, description, raw_value, ptype, access, enumeration)
+    contents_set = _parameter_contents_set(identifier, description, raw_value, ptype, access,
+                                           enumeration, online=online)
     return _app_constructed(G_QUAL_PARAMETER,
         _ctx_explicit(0, ber_relative_oid(path)) +
         _ctx_explicit(1, contents_set))
 
-def _node_contents_set(identifier, description=""):
-    """NodeContents = SET universel contenant les champs EXPLICIT-taggés."""
+def _node_contents_set(identifier, description="", online=True):
+    """NodeContents = SET universel contenant les champs EXPLICIT-taggés.
+    `online=False` : la branche EXISTE mais n'est pas servie (emplacement sans conteneur lié).
+    C'est le point du modèle par emplacements : une branche qui DISPARAÎT laisse le pupitre
+    en face avec des boutons morts sans le savoir."""
     fields = _ctx_explicit(NC_IDENTIFIER, ber_utf8(identifier))
     if description:
         fields += _ctx_explicit(NC_DESCRIPTION, ber_utf8(description))
-    fields += _ctx_explicit(NC_IS_ONLINE, ber_bool(True))
+    fields += _ctx_explicit(NC_IS_ONLINE, ber_bool(bool(online)))
     return _universal_constructed(17, fields)  # SET universel
 
-def _qual_node(path, identifier, description="", children_bytes=b""):
+def _qual_node(path, identifier, description="", children_bytes=b"", online=True):
     """children_bytes : déjà-encodé séquence de [Context 0] EXPLICIT element wrappers."""
     body = (_ctx_explicit(0, ber_relative_oid(path)) +
-            _ctx_explicit(1, _node_contents_set(identifier, description)))
+            _ctx_explicit(1, _node_contents_set(identifier, description, online=online)))
     if children_bytes:
         # children [2] EXPLICIT ElementCollection ([App 4] IMPLICIT SEQUENCE OF [0] Element)
         ec = _app_constructed(G_ELEMENT_COLLECTION, children_bytes)
@@ -675,62 +711,102 @@ def _chrono_overlays(deploy_config_json):
 
 def _enumerate_elements():
     """Itère sur tous les éléments de l'arbre sous forme (path, kind, *args).
-    kind ∈ {'node', 'param'} ; args = (identifier, description[, raw_value, ptype, writeable])."""
-    from app.database import db_get_containers
-    yield ([1], 'node', 'containers', 'Containers MXL')
-    for c in db_get_containers():
+    kind ∈ {'node', 'param'} ; args = (identifier, description[, raw_value, ptype, writeable]).
+
+    L'arbre est celui des EMPLACEMENTS : une branche par ligne de `production_roles`, adressée par son
+    numéro (jamais réattribué), et non par le vmid du conteneur qui la sert à cet instant."""
+    from app.database import db_roles_with_containers
+    yield ([1], 'node', 'emplacements', 'Emplacements de production')
+    for role, c in db_roles_with_containers():
+        num = role["num"]
+        online = c is not None
+        label = role.get("label") or role["key"]
+        desc = label if online else f"{label} (hors ligne)"
+        yield ([1, num], 'node', role["key"], desc, online)
+        dcfg = c.get("deploy_config") if online else None
+        ctype = _container_type(dcfg)
+        for sub_id, (field, ptype, pdesc) in PATH_FIELD_CONTAINER.items():
+            if field == "type":
+                raw = ctype or (role.get("expect_type") or "")
+            elif field == "vmid":
+                raw = c.get("vmid") if online else 0
+            elif field == "en_ligne":
+                raw = online
+            else:
+                raw = c.get(field) if online else None
+            yield ([1, num, sub_id], 'param', field, pdesc, raw, ptype, False, None, online)
+        if not online:
+            # Hors ligne : on s'arrête aux champs d'état. Publier des fenêtres/overlays d'un
+            # conteneur absent inventerait une topologie — la branche existe, elle est vide.
+            _recall_snapshot.pop(num, None)
+            continue
         vmid = c["vmid"]
-        yield ([1, vmid], 'node',
-               c.get("hostname") or f"container_{vmid}", f"VMID {vmid}")
-        ctype = _container_type(c.get("deploy_config"))
-        for sub_id, (field, ptype, desc) in PATH_FIELD_CONTAINER.items():
-            raw = ctype if field == "type" else c.get(field)
-            yield ([1, vmid, sub_id], 'param', field, desc, raw, ptype, False)
         # Paramètre « Recall » pour tout type déclarant control.recall (DVE, correcteur,
         # multiview…) : énumération des presets disponibles, écriture = rappel à chaud.
         names = _recall_names(vmid, ctype)
         if names is not None:
-            yield ([1, vmid, RECALL_PARAM_ID], 'param', 'recall', 'Rappel preset',
+            _recall_snapshot[num] = list(names)
+            yield ([1, num, RECALL_PARAM_ID], 'param', 'recall', 'Rappel preset (par rang)',
                    0, PT_INTEGER, True, names)
-        flux = _flux_list(c.get("deploy_config"))
+            yield ([1, num, RECALL_NAME_PARAM_ID], 'param', 'recall_nom',
+                   'Rappel preset (par nom)', "", PT_STRING, True)
+        else:
+            _recall_snapshot.pop(num, None)
+        flux = _flux_list(dcfg)
         if flux:
-            yield ([1, vmid, FLUX_SUBTREE_ID], 'node', 'flux', 'Fenêtres multiview')
+            yield ([1, num, FLUX_SUBTREE_ID], 'node', 'flux', 'Fenêtres multiview')
             for i, f in enumerate(flux):
-                yield ([1, vmid, FLUX_SUBTREE_ID, i], 'node',
+                yield ([1, num, FLUX_SUBTREE_ID, i], 'node',
                        f.get("name") or f"flux_{i}", f"Fenêtre #{i}")
-                for sub_id, (field, ptype, desc, writeable) in PATH_FIELD_FLUX.items():
-                    yield ([1, vmid, FLUX_SUBTREE_ID, i, sub_id], 'param',
-                           field, desc, f.get(field), ptype, writeable)
+                for sub_id, (field, ptype, pdesc, writeable) in PATH_FIELD_FLUX.items():
+                    yield ([1, num, FLUX_SUBTREE_ID, i, sub_id], 'param',
+                           field, pdesc, f.get(field), ptype, writeable)
         # Overlays texte (text_source local) : un param string inscriptible par overlay.
         # Index = position RÉELLE dans params.overlays (pas l'index parmi les seuls texte),
         # pour que apply_setvalue retrouve le bon overlay sans ré-indexation.
-        overlays = _overlay_list(c.get("deploy_config"))
+        overlays = _overlay_list(dcfg)
         editable = [(i, ov) for i, ov in enumerate(overlays)
                     if ov.get("kind") == "text" and (ov.get("text_source") or "local") == "local"]
         if editable:
-            yield ([1, vmid, OVERLAY_SUBTREE_ID], 'node', 'overlays', 'Overlays texte')
+            yield ([1, num, OVERLAY_SUBTREE_ID], 'node', 'overlays', 'Overlays texte')
             for i, ov in editable:
                 txt = ov.get("text") or ""
-                desc = txt.replace("\n", " ")[:32] or f"Overlay #{i}"
-                yield ([1, vmid, OVERLAY_SUBTREE_ID, i], 'param',
-                       f"texte_{i}", desc, txt, PT_STRING, True)
+                odesc = txt.replace("\n", " ")[:32] or f"Overlay #{i}"
+                yield ([1, num, OVERLAY_SUBTREE_ID, i], 'param',
+                       f"texte_{i}", odesc, txt, PT_STRING, True)
         # Chronos / décomptes : réglages (départ) + déclenchements (marche/raz) inscriptibles.
-        chronos = _chrono_overlays(c.get("deploy_config"))
+        chronos = _chrono_overlays(dcfg)
         if chronos:
-            yield ([1, vmid, CHRONO_SUBTREE_ID], 'node', 'chronos', 'Chronos / décomptes')
+            yield ([1, num, CHRONO_SUBTREE_ID], 'node', 'chronos', 'Chronos / décomptes')
             for i, ov in chronos:
                 is_cd = ov.get("clock_source") == "countdown"
                 kind_lbl = "Décompte" if is_cd else "Chrono"
                 nm = ov.get("name") or f"{kind_lbl} #{i}"
-                yield ([1, vmid, CHRONO_SUBTREE_ID, i], 'node', f"{kind_lbl.lower()}_{i}", nm)
-                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 1], 'param',
+                yield ([1, num, CHRONO_SUBTREE_ID, i], 'node', f"{kind_lbl.lower()}_{i}", nm)
+                yield ([1, num, CHRONO_SUBTREE_ID, i, 1], 'param',
                        'depart', 'Départ (HH:MM:SS)', ov.get("chrono_start") or "00:00:00",
                        PT_STRING, True)
-                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 2], 'param',
+                yield ([1, num, CHRONO_SUBTREE_ID, i, 2], 'param',
                        'marche', 'Marche (départ/arrêt)', bool(ov.get("chrono_running")),
                        PT_BOOLEAN, True)
-                yield ([1, vmid, CHRONO_SUBTREE_ID, i, 3], 'param',
+                yield ([1, num, CHRONO_SUBTREE_ID, i, 3], 'param',
                        'raz', 'Réinitialiser', False, PT_BOOLEAN, True)
+
+
+def _role_vmid(num):
+    """vmid du conteneur servant l'emplacement `num`, ou None (emplacement hors ligne).
+    Point de passage UNIQUE des écritures : le chemin Ember+ ne connaît que l'emplacement."""
+    from app.database import db_role_container
+    try:
+        c = db_role_container(num)
+    except Exception as e:
+        log.warning(f"emberplus: résolution emplacement {num} échouée : {e}")
+        return None
+    if not c:
+        log.warning(f"emberplus: emplacement {num} hors ligne — écriture ignorée")
+        return None
+    return c["vmid"]
+
 
 def _recall_names(vmid, ctype):
     """Liste des noms de presets rappelables pour ce container, ou None si le type
@@ -747,12 +823,16 @@ def _recall_names(vmid, ctype):
 
 def _encode_element(path, kind, *args):
     if kind == 'node':
-        identifier, description = args
-        return _qual_node(path, identifier, description)
-    # param : (identifier, description, raw_value, ptype, writeable[, enumeration])
+        # node : (identifier, description[, online])
+        identifier, description = args[:2]
+        online = args[2] if len(args) > 2 else True
+        return _qual_node(path, identifier, description, online=online)
+    # param : (identifier, description, raw_value, ptype, writeable[, enumeration[, online]])
     identifier, description, raw_value, ptype, writeable = args[:5]
     enumeration = args[5] if len(args) > 5 else None
-    return _qual_parameter(path, identifier, description, raw_value, ptype, writeable, enumeration)
+    online = args[6] if len(args) > 6 else True
+    return _qual_parameter(path, identifier, description, raw_value, ptype, writeable,
+                           enumeration, online=online)
 
 def _enumerate_routing_elements():
     """Génère les nœuds/paramètres du sous-arbre routing [2] en Node+Parameter standard.
@@ -874,7 +954,7 @@ def _routing_matrix_response():
 def build_directory_response(target_path):
     """Réponse à GetDirectory(path) :
     - path == [2] ou [2,1]   → uniquement la QualifiedMatrix path=[2,1]
-    - sinon                  → arbre complet (containers)"""
+    - sinon                  → arbre complet (emplacements)"""
     if target_path == [2] or target_path == ROUTING_MATRIX_PATH:
         return _routing_matrix_response()
     return build_root_collection()
@@ -1192,6 +1272,28 @@ def _push_chrono(vmid, cid, action):
         return False
 
 
+def _recall_by_name(vmid, ctype, name):
+    """Rappelle le preset dont le NOM correspond (insensible à la casse/espaces de bord).
+    Retourne (ok, detail). Le nom est l'identité stable d'un preset : le RANG, lui, bouge
+    dès qu'on insère ou renomme un layout — un pupitre qui garde un rang se trompe alors
+    de rappel sans aucun signal."""
+    try:
+        from app.routes import recall_presets, recall_preset
+        _rc, presets = recall_presets(vmid, ctype)
+    except Exception as e:
+        return False, f"liste des presets illisible : {e}"
+    want = str(name).strip().lower()
+    idx = next((i for i, p in enumerate(presets)
+                if str(p.get("name") or "").strip().lower() == want), None)
+    if idx is None:
+        dispo = ", ".join(str(p.get("name")) for p in presets) or "aucun"
+        return False, f"preset « {name} » introuvable (disponibles : {dispo})"
+    try:
+        return recall_preset(vmid, ctype, idx)
+    except Exception as e:
+        return False, f"rappel échoué : {e}"
+
+
 def apply_setvalue(path, value):
     """Applique une écriture Ember+ autorisée À CHAUD (sans redeploy) :
     routing, géométrie multiview x/y/w/h, et rappel de preset. Retourne True si appliqué."""
@@ -1203,29 +1305,43 @@ def apply_setvalue(path, value):
             return apply_connect(ROUTING_MATRIX_PATH, target_num, [], CN_OP_DISCONNECT)
         return apply_connect(ROUTING_MATRIX_PATH, target_num, [source_num], CN_OP_ABSOLUTE)
 
-    # Rappel de preset : [1, vmid, RECALL_PARAM_ID] → écrire l'index N rappelle le preset N
-    if len(path) == 3 and path[0] == 1 and path[2] == RECALL_PARAM_ID:
-        vmid = path[1]
+    # Rappel de preset : [1, num, 101] par RANG (traduit en nom via l'énumération publiée),
+    # [1, num, 104] par NOM directement. Dans les deux cas c'est le NOM qui décide.
+    if len(path) == 3 and path[0] == 1 and path[2] in (RECALL_PARAM_ID, RECALL_NAME_PARAM_ID):
+        num = path[1]
+        vmid = _role_vmid(num)
+        if not vmid:
+            return False
         from app.database import db_get_container
         c = db_get_container(vmid)
         if not c:
             return False
         ctype = _container_type(c.get("deploy_config"))
-        try:
-            from app.routes import recall_preset
-            ok, detail = recall_preset(vmid, ctype, int(value))
-        except Exception as e:
-            log.error(f"emberplus: recall {vmid} échoué : {e}")
-            return False
+        if path[2] == RECALL_NAME_PARAM_ID:
+            name = str(value)
+        else:
+            # Rang → nom, d'après l'énumération TELLE QUE PUBLIÉE à cet emplacement. Sans ce
+            # détour, un layout inséré ou renommé décale ce que « 3 » rappelle, en silence.
+            snap = _recall_snapshot.get(num) or []
+            idx = int(value)
+            if not (0 <= idx < len(snap)):
+                log.warning(f"emberplus: recall emplacement {num} rang {idx} hors énumération "
+                            f"publiée ({len(snap)} entrées)")
+                return False
+            name = snap[idx]
+        ok, detail = _recall_by_name(vmid, ctype, name)
         if ok:
             notify_change()
         else:
-            log.warning(f"emberplus: recall {vmid} ({ctype}) index {value} : {detail}")
+            log.warning(f"emberplus: recall emplacement {num} (#{vmid} {ctype}) "
+                        f"« {name} » : {detail}")
         return ok
 
-    # Texte d'overlay multiview à chaud : [1, vmid, 102, overlay_idx]
+    # Texte d'overlay multiview à chaud : [1, num, 102, overlay_idx]
     if len(path) == 4 and path[0] == 1 and path[2] == OVERLAY_SUBTREE_ID:
-        vmid, overlay_idx = path[1], path[3]
+        vmid, overlay_idx = _role_vmid(path[1]), path[3]
+        if not vmid:
+            return False
         from app.database import db_get_container, db_update_deploy_config
         c = db_get_container(vmid)
         if not c:
@@ -1260,10 +1376,12 @@ def apply_setvalue(path, value):
         notify_change()
         return True
 
-    # Chrono / décompte multiview : [1, vmid, 103, overlay_idx, field_id]
+    # Chrono / décompte multiview : [1, num, 103, overlay_idx, field_id]
     #   1 depart (réglage : persiste + push /overlays) ; 2 marche (start/stop) ; 3 raz (reset)
     if len(path) == 5 and path[0] == 1 and path[2] == CHRONO_SUBTREE_ID:
-        vmid, overlay_idx, field_id = path[1], path[3], path[4]
+        vmid, overlay_idx, field_id = _role_vmid(path[1]), path[3], path[4]
+        if not vmid:
+            return False
         from app.database import db_get_container, db_update_deploy_config
         c = db_get_container(vmid)
         if not c:
@@ -1304,10 +1422,12 @@ def apply_setvalue(path, value):
         notify_change()
         return ok
 
-    # Géométrie multiview à chaud : [1, vmid, 100, flux_idx, field_id]
+    # Géométrie multiview à chaud : [1, num, 100, flux_idx, field_id]
     if len(path) != 5 or path[0] != 1 or path[2] != FLUX_SUBTREE_ID:
         return False
-    vmid, flux_idx, field_id = path[1], path[3], path[4]
+    vmid, flux_idx, field_id = _role_vmid(path[1]), path[3], path[4]
+    if not vmid:
+        return False
     if field_id not in (1, 2, 3, 4):  # x, y, w, h uniquement
         return False
     field = PATH_FIELD_FLUX[field_id][0]

@@ -11,9 +11,36 @@
             <button class="btn btn-green" onclick="appliquerEmber()">Appliquer</button>
         </div>
         <div class="meta" style="margin-top:var(--space-2)">
-            L'arbre Ember+ expose tous les paramètres des containers en lecture.
-            Pour les multiviews, chaque fenêtre apparaît dans <code>containers.&lt;vmid&gt;.flux.&lt;idx&gt;</code> avec
-            position et taille en lecture/écriture (un Set déclenche un redéploiement).
+            {{ _('settings.emberplus.tree_help') }}
+            <code>emplacements.&lt;clé&gt;.flux.&lt;idx&gt;</code> — {{ _('settings.emberplus.tree_help2') }}
+        </div>
+    </div>
+
+    <h2>{{ _('settings.roles.title') }}</h2>
+    <div class="form">
+        <div class="meta">{{ _('settings.roles.intro') }}</div>
+        <div class="table-wrap" style="margin-top:var(--space-3)">
+        <table id="roles_table" style="width:100%; border-collapse:collapse; font-size:0.9em; min-width:min(760px, 100%);">
+            <thead>
+                <tr style="color:var(--text-muted); text-align:left;">
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border); width:4rem">{{ _('settings.roles.num') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border)">{{ _('settings.roles.key') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border)">{{ _('settings.roles.label') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border); width:150px">{{ _('settings.roles.expect_type') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border); width:230px">{{ _('settings.roles.container') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border); width:150px">{{ _('settings.roles.state') }}</th>
+                    <th style="padding:var(--space-2); border-bottom:1px solid var(--border); width:3rem"></th>
+                </tr>
+            </thead>
+            <tbody id="roles_tbody"></tbody>
+        </table>
+        </div>
+        <div class="row" style="margin-top:var(--space-3); align-items:flex-end">
+            <div class="field"><label>{{ _('settings.roles.label') }}</label>
+                <input type="text" id="role_new_label" placeholder="{{ _('settings.roles.new_label_ph') }}"></div>
+            <div class="field"><label>{{ _('settings.roles.container') }}</label>
+                <select id="role_new_container"></select></div>
+            <button class="btn btn-green" onclick="creerRole()">{{ _('settings.roles.create') }}</button>
         </div>
     </div>
 
