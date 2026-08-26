@@ -1,0 +1,12 @@
+{
+ "service.emberplus.activer_le_provider_ember": "Enable the Ember+ provider",
+ "service.emberplus.appliquer": "Apply",
+ "service.emberplus.clients_abonnes": "Subscribed clients",
+ "service.emberplus.clients_connectes": "Connected clients",
+ "service.emberplus.demarre_depuis": "Started",
+ "service.emberplus.etat_de_connexion": "Connection state",
+ "service.emberplus.port_effectif": "Effective port",
+ "service.emberplus.port_tcp": "TCP port",
+ "service.emberplus.provider_ember": "Ember+ provider",
+ "service.emberplus.statut": "Status"
+}

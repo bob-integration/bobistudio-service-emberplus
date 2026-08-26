@@ -1,14 +1,14 @@
 <div id="protocoles-tab-emberplus" class="set-tab-content" style="display:none">
-    <h2>Provider Ember+</h2>
+    <h2>{{ _('service.emberplus.provider_ember') }}</h2>
     <div class="form">
         <div class="row">
             <div class="field" style="align-self:center"><label style="display:flex; align-items:center; gap:var(--space-2)">
                 <input type="checkbox" class="ios-toggle" id="s_ember_enabled">
-                Activer le provider Ember+
+                {{ _('service.emberplus.activer_le_provider_ember') }}
             </label></div>
-            <div class="field"><label>Port TCP</label>
+            <div class="field"><label>{{ _('service.emberplus.port_tcp') }}</label>
                 <input type="number" id="s_ember_port" min="1" max="65535" value="9000"></div>
-            <button class="btn btn-green" onclick="appliquerEmber()">Appliquer</button>
+            <button class="btn btn-green" onclick="appliquerEmber()">{{ _('service.emberplus.appliquer') }}</button>
         </div>
         <div class="meta" style="margin-top:var(--space-2)">
             {{ _('settings.emberplus.tree_help') }}
@@ -44,18 +44,18 @@
         </div>
     </div>
 
-    <h2>État de connexion</h2>
+    <h2>{{ _('service.emberplus.etat_de_connexion') }}</h2>
     <div class="form">
         <div class="row">
-            <div class="field"><label>Statut</label>
+            <div class="field"><label>{{ _('service.emberplus.statut') }}</label>
                 <div id="ember_status_badge" class="meta">—</div></div>
-            <div class="field"><label>Port effectif</label>
+            <div class="field"><label>{{ _('service.emberplus.port_effectif') }}</label>
                 <div id="ember_status_port" class="meta">—</div></div>
-            <div class="field"><label>Clients connectés</label>
+            <div class="field"><label>{{ _('service.emberplus.clients_connectes') }}</label>
                 <div id="ember_status_clients" class="meta">—</div></div>
-            <div class="field"><label>Clients abonnés</label>
+            <div class="field"><label>{{ _('service.emberplus.clients_abonnes') }}</label>
                 <div id="ember_status_subscribed" class="meta">—</div></div>
-            <div class="field"><label>Démarré depuis</label>
+            <div class="field"><label>{{ _('service.emberplus.demarre_depuis') }}</label>
                 <div id="ember_status_uptime" class="meta">—</div></div>
         </div>
         <div id="ember_status_error" class="meta" style="margin-top:var(--space-2); color: var(--status-stopped-fg)"></div>
