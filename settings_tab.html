@@ -19,6 +19,13 @@
     <h2>{{ _('settings.roles.title') }}</h2>
     <div class="form">
         <div class="meta">{{ _('settings.roles.intro') }}</div>
+        <!-- Ménage en bloc : le bouton n'apparaît QUE s'il y a des emplacements hors ligne,
+             et son libellé porte leur nombre — un bouton de purge qui ne dit pas combien il
+             va supprimer ne se clique pas en confiance. -->
+        <div class="row" id="roles_purge_row" style="margin-top:var(--space-2)" hidden>
+            <button class="btn btn-red" onclick="purgerRolesHorsLigne()" id="roles_purge_btn"></button>
+            <span class="meta" style="align-self:center">{{ _('settings.roles.purge_hint') }}</span>
+        </div>
         <div class="table-wrap" style="margin-top:var(--space-3)">
         <table id="roles_table" style="width:100%; border-collapse:collapse; font-size:0.9em; min-width:min(760px, 100%);">
             <thead>
@@ -35,6 +42,9 @@
             <tbody id="roles_tbody"></tbody>
         </table>
         </div>
+        <!-- Les emplacements ne se créent plus tout seuls : sans cet indice, un conteneur
+             déployé n'aurait aucun moyen de signaler qu'il n'a pas encore d'identité. -->
+        <div class="meta" id="roles_sans_emplacement" style="margin-top:var(--space-3)" hidden></div>
         <div class="row" style="margin-top:var(--space-3); align-items:flex-end">
             <div class="field"><label>{{ _('settings.roles.label') }}</label>
                 <input type="text" id="role_new_label" placeholder="{{ _('settings.roles.new_label_ph') }}"></div>
