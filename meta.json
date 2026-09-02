@@ -16,8 +16,6 @@
       "Sous-arbre « Chronos / décomptes » du multiview (1.<num>.103.<idx>) : réglage du départ (string RW) + déclenchements marche (bool RW start/stop) et raz (bool RW reset), câblés à chaud sur :8082/chrono et :8082/overlays",
       "Édition à chaud du texte des overlays multiview (sous-arbre « Overlays texte », paramètres string inscriptibles)",
       "Version initiale"
-    ],
-    "Corrections": [],
-    "Bugs connus": []
+    ]
   }
 }
