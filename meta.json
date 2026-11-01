@@ -1,7 +1,10 @@
 {
-  "version": "0.4.0",
-  "published_at": "2026-08-04",
+  "version": "0.4.1",
+  "published_at": "2026-11-01",
   "changes": {
+    "Documentation (0.4.1)": [
+      "La matrice de routage [2,1] est documentée : les sources et les cibles sont déclarées par les plugins, la connexion passe par le câblage à chaud. ⚠ Elle est numérotée dans l'ordre des handles internes, donc NON stable au travers des recréations — contrairement à l'arbre des emplacements, dont le numéro n'est jamais réattribué. Un contrôleur qui mémorise un index de matrice doit le revérifier après une recréation."
+    ],
     "Nouveautés (0.4.0)": [
       "L'arbre n'est plus keyé sur le VMID mais sur les EMPLACEMENTS (Réglages → Ember+ → Emplacements) : une branche = une fonction de production, numéro jamais réattribué. Réaffecter un emplacement à un autre conteneur (multiview recréé, machine remplacée) ne déplace AUCUN chemin — rappeler un layout reste le même Set. Rupture assumée : l'ancien arbre containers.<vmid> disparaît",
       "Un emplacement sans conteneur lié reste PUBLIÉ avec isOnline=false (+ paramètre en_ligne) : une branche qui disparaissait laissait le pupitre avec des boutons morts sans le savoir",
