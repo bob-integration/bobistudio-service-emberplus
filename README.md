@@ -48,6 +48,23 @@ l'emplacement.
 
 ---
 
+## La matrice de routage — une exception à ce principe
+
+L'arbre porte aussi une **matrice de routage vidéo** (chemin `[2, 1]`, avec les nœuds `sources`
+`[2, 2]` et `targets` `[2, 3]`) : sources et cibles sont celles que les plugins déclarent
+(crochets `ember_sources` / `ember_targets`) — au 2026-11-01 : la sortie du multiview comme source,
+ses fenêtres et l'entrée du streamer comme cibles. Une connexion passe
+par le câblage à chaud de la page Câbles ; une déconnexion détache l'entrée (à chaud si le plugin
+le permet, sinon par redéploiement).
+
+⚠ **Cette matrice n'est PAS adressée par emplacement.** Sources et cibles sont numérotées dans
+l'ordre des conteneurs triés par leur handle interne : créer, détruire ou recréer un conteneur
+peut décaler les numéros de toute la matrice. Le principe énoncé plus haut ne vaut donc que pour
+l'arbre `emplacements.<num>` ; un contrôleur qui programme la matrice doit relire ses sources et
+cibles après tout changement de parc.
+
+---
+
 ## L'activer
 
 Réglages → **Protocoles → Ember+**. Deux réglages : l'activation, et le port d'écoute

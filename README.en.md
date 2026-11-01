@@ -45,6 +45,23 @@ re-creations and replacements, because it is the slot's address.
 
 ---
 
+## The routing matrix — an exception to that principle
+
+The tree also carries a **video routing matrix** (path `[2, 1]`, with the `sources` `[2, 2]` and
+`targets` `[2, 3]` nodes): sources and targets are those declared by plugins (`ember_sources` /
+`ember_targets` hooks) — as of 2026-11-01: the multiview output as a source, its windows and the
+streamer input as targets. A connection goes through the hot wiring of the
+Cables page; a disconnection detaches the input (hot if the plugin allows it, otherwise by
+redeployment).
+
+⚠ **This matrix is NOT addressed by slot.** Sources and targets are numbered in the order of the
+containers sorted by their internal handle: creating, destroying or recreating a container may
+shift the numbers across the whole matrix. The principle stated above therefore only holds for
+the `emplacements.<num>` tree; a controller that drives the matrix must re-read its sources and
+targets after any change to the fleet.
+
+---
+
 ## Enabling it
 
 Settings → **Protocols → Ember+**. Two settings: the switch, and the listening port (9000 by
