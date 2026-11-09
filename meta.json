@@ -1,7 +1,10 @@
 {
-  "version": "0.4.1",
+  "version": "0.4.2",
   "published_at": "2026-11-01",
   "changes": {
+    "Version minimale du cœur déclarée (0.4.2)": [
+      "Le manifeste déclare `requires.core_min` = 0.9.2 : l'orchestrateur refuse de l'installer sur un cœur plus ancien et le dit. Valeur = le cœur avec lequel le code actuel a été fait ; le service tourne DANS l'orchestrateur et importe `app.*`."
+    ],
     "Documentation (0.4.1)": [
       "La matrice de routage [2,1] est documentée : les sources et les cibles sont déclarées par les plugins, la connexion passe par le câblage à chaud. ⚠ Elle est numérotée dans l'ordre des handles internes, donc NON stable au travers des recréations — contrairement à l'arbre des emplacements, dont le numéro n'est jamais réattribué. Un contrôleur qui mémorise un index de matrice doit le revérifier après une recréation."
     ],
